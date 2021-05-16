@@ -137,6 +137,11 @@ public class TetrisSystem : GameSystemBase
     // Start is called before the first frame update
     void Start()
     {
+        // Test
+#if UNITY_EDITOR
+        Application.targetFrameRate = 60;
+#endif
+
         // 初期状態の設定
         for (int i = 0; i < FIELD_SIZE_Y; i++)
         {

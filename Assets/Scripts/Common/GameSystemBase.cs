@@ -18,7 +18,7 @@ public class GameSystemBase : MonoBehaviour
 
     // キー入力
     protected Dictionary<KeyCode, int> _keyImputTimer = new Dictionary<KeyCode, int>();
-    protected bool GetKeyEx(KeyCode keyCode)
+    protected bool GetKeyEx(KeyCode keyCode, int firstInterval = 10)
     {
         if (!_keyImputTimer.ContainsKey(keyCode))
         {
@@ -34,6 +34,6 @@ public class GameSystemBase : MonoBehaviour
             _keyImputTimer[keyCode] = -1;
         }
 
-        return (_keyImputTimer[keyCode] == 0 || _keyImputTimer[keyCode] >= 10);
+        return (_keyImputTimer[keyCode] == 0 || _keyImputTimer[keyCode] >= firstInterval);
     }
 }
