@@ -7,8 +7,8 @@ public class TetrisSystem : GameSystemBase
     const int FIELD_SIZE_X = 12;
     const int FIELD_SIZE_Y = 22;
 
-    const int MOVE_SIZE_X = 5;
-    const int MOVE_SIZE_Y = 5;
+    public const int MOVE_SIZE_X = 5;
+    public const int MOVE_SIZE_Y = 5;
 
     const int DEFAULT_MOVE_X = 3;
     const int DEFAULT_MOVE_Y = 15;
@@ -134,6 +134,27 @@ public class TetrisSystem : GameSystemBase
     private float _fallTime = 1.0f;
     private float _fallTimer = 1.0f;
 
+
+    // ホールド用
+    [SerializeField] private BlockUnit _blockUnitHold = null;   // ホールド用のBlockUnit
+    bool _canHold = true;
+    bool _isHold = false;
+
+    // Nextブロック表示用
+    [SerializeField] private BlockUnit[] _nextUnitHold = null;    // ホールド用のBlockUnit
+    private int _nextUnitCount = 0;            // いくつ次のブロックまで表示させるか
+
+    // 状態遷移
+    enum GameState
+    {
+        Active,
+        GameOver,
+
+        Max
+    }
+    GameState _gameState = GameState.Active;
+
+
     // Start is called before the first frame update
     void Start()
     {
@@ -159,6 +180,13 @@ public class TetrisSystem : GameSystemBase
             }
         }
 
+        // 最初の抽選
+        _nextUnitCount = _nextUnitHold.Length;
+        for (int i = 0; i < _nextUnitCount; i++)
+        {
+            LotNextBlock();
+        }
+
         // ブロックを開始
         StartMove();
     }
@@ -166,6 +194,17 @@ public class TetrisSystem : GameSystemBase
     // Update is called once per frame
     void Update()
     {
+        // アクティブでない場合は行わない
+        if (_gameState != GameState.Active)
+        {
+            return;
+        }
+
+        // ブロックをホールド
+        if (GetKeyEx(KeyCode.I))
+        {
+            HoldMoveBlocks();
+        }
         // ブロックを左右移動させる
         if (GetKeyEx(KeyCode.S))
         {
@@ -250,6 +289,18 @@ public class TetrisSystem : GameSystemBase
             for (int j = 0; j < MOVE_SIZE_X; j++)
             {
                 _tempBlocksState[i, j] = _moveBlocksState[i, j];
+            }
+        }
+    }
+
+    // 退避から戻す
+    void RestoreTempState()
+    {
+        for (int i = 0; i < MOVE_SIZE_Y; i++)
+        {
+            for (int j = 0; j < MOVE_SIZE_X; j++)
+            {
+                _moveBlocksState[i, j] = _tempBlocksState[i, j];
             }
         }
     }
@@ -415,6 +466,30 @@ public class TetrisSystem : GameSystemBase
         }
     }
 
+    /// <summary>
+    /// ゲームオーバーかどうかを判定
+    /// </summary>
+    /// <returns></returns>
+    bool CheckGameOver()
+    {
+        // ブロックの状態反映（動作中）
+        for (int i = 0; i < MOVE_SIZE_Y; i++)
+        {
+            for (int j = 0; j < MOVE_SIZE_X; j++)
+            {
+                if (0 <= _moveBlockY + i && _moveBlockY + i < FIELD_SIZE_Y && 0 <= _moveBlockX + j && _moveBlockX + j < FIELD_SIZE_X)
+                {
+                    // ブロックの状態
+                    if (_fieldBlocksState[_moveBlockY + i, _moveBlockX + j] != eBlockState.eNone && _moveBlocksState[i, j] != eBlockState.eNone)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
     void CheckLine()
     {
         for (int i = 1; i < FIELD_SIZE_Y - 1; i++)
@@ -449,12 +524,53 @@ public class TetrisSystem : GameSystemBase
         }
     }
 
-    // ブロックを開始
-    void StartMove()
+    /// <summary>
+    /// 動かしてるブロックをホールドする
+    /// </summary>
+    /// <returns>ホールドできたか</returns>
+    bool HoldMoveBlocks()
     {
-        // 初期位置を設定
-        _moveBlockX = DEFAULT_MOVE_X;
-        _moveBlockY = DEFAULT_MOVE_Y;
+        // ホールドできないときは行わない
+        if (!_canHold)
+        {
+            return false;
+        }
+
+        // ホールド処理
+        _blockUnitHold.ReadBlock(ref _tempBlocksState);
+        _blockUnitHold.WriteBlock(ref _moveBlocksState);
+        RestoreTempState();
+
+        // ホールドしてなければ次のブロックを落とす
+        if (!_isHold)
+        {
+            StartMove();
+        }
+
+        // ホールドした
+        _isHold = true;
+
+        // ホールドできなくする
+        _canHold = false;
+
+        return true;
+    }
+
+    /// <summary>
+    /// ブロックの抽選
+    /// </summary>
+    /// <returns>ゲームオーバーかどうか</returns>
+    bool LotNextBlock()
+    {
+        // 次に出すブロックを入れる
+        _nextUnitHold[0].ReadBlock(ref _moveBlocksState);
+
+        // 順に上に移す
+        for (int i = 0; i < _nextUnitCount - 1; i++)
+        {
+            var fieldBlockState = _nextUnitHold[i + 1].fieldBlocksState;
+            _nextUnitHold[i].WriteBlock(ref fieldBlockState);
+        }
 
         // ランダム
         int pattern = Random.Range(0, eBlockState.eMax - eBlockState.eSkyBlue);
@@ -466,8 +582,62 @@ public class TetrisSystem : GameSystemBase
         {
             for (int j = 0; j < MOVE_SIZE_X; j++)
             {
-                _moveBlocksState[i, j] = (eBlockState)blocks[i,j];
+                _tempBlocksState[i, j] = (eBlockState)blocks[i, j];
             }
         }
+
+        // ユニットに書き込み
+        int index = _nextUnitCount - 1;
+        _nextUnitHold[index].WriteBlock(ref _tempBlocksState);
+
+        return CheckGameOver();
+    }
+
+    // ブロックを開始
+    void StartMove()
+    {
+        // 初期位置を設定
+        _moveBlockX = DEFAULT_MOVE_X;
+        _moveBlockY = DEFAULT_MOVE_Y;
+
+        // 抽選
+        bool isGameOver = LotNextBlock();
+
+        // ホールドを可能に
+        _canHold = true;
+
+        // ゲームオーバーの場合はゲームオーバー処理
+        if (isGameOver)
+        {
+            StartCoroutine(GameOverProc());
+        }
+    }
+
+    /// <summary>
+    /// ゲームオーバー処理
+    /// </summary>
+    /// <returns></returns>
+    private IEnumerator GameOverProc()
+    {
+        _gameState = GameState.GameOver;
+
+        yield return null;
+
+        for (int i = 0; i < FIELD_SIZE_Y; i++)
+        {
+            for (int j = 0; j < FIELD_SIZE_X; j++)
+            {
+                if (_fieldBlocksStateFinal[i, j] != eBlockState.eNone)
+                {
+                    _fieldBlocks[i, j].SetState(eBlockState.eFrame);
+                }
+            }
+
+            yield return new WaitForSeconds(0.1f);
+        }
+
+        yield return new WaitForSeconds(1.0f);
+
+        yield break;
     }
 }
